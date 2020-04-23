@@ -6,6 +6,13 @@
 
 LAB1/data/MNIST
 
+# LAB2
+
+LAB2/build
+LAB2/datasets/
+LAB2/im2col_cython.c
+LAB2/im2col_cython.cpython-36m-x86_64-linux-gnu.so
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
