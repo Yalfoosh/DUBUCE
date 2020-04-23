@@ -8,7 +8,7 @@ Ova vježba je specifična po tome što nema `datasets` direktorij. Ono što je 
 - napraviti `LAB2/datasets` direktorij
 - napraviti `LAB2/datasets/CIFAR` direktorij
 - preuzeti skup podataka s [ove poveznice](https://www.cs.toronto.edu/~kriz/cifar-10-python.tar.gz)
-- raspakirati skup podataka dok se ne dođe do direktorij koji sadrži data_batch datoteke
+- raspakirati skup podataka dok se ne dođe do direktorija koji sadrži data_batch datoteke
 - premjestiti te datoteke u `LAB2/datasets/CIFAR`
 
 Vaš `LAB2/datasets/CIFAR` direktor sad bi trebao izgledati kao na slici:
