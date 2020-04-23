@@ -1,5 +1,5 @@
 # Duboko učenje
-## Druga laboratorijska vježba - konvolucijske mreže
+## Druga laboratorijska vježba - konvolucijski modeli
 
 ### Priprema
 
