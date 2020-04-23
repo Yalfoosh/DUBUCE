@@ -10,7 +10,6 @@ import nn
 import layers
 
 DATA_DIR = Path(__file__).parent / "datasets" / "MNIST"
-# TODO Treba dodati os.makedirs
 SAVE_DIR = Path(__file__).parent / "out_l2reg"
 
 config = dict()
@@ -77,6 +76,7 @@ for weight_decay in [1e-3, 1e-2, 1e-1]:
     nn.train(train_x, train_y, valid_x, valid_y, net, loss, config)
     accuracies[weight_decay] = nn.evaluate("Test", test_x, test_y, net, loss, config)
 
+    # Comment if you don't have overheating issues like me
     time.sleep(120)
 
 

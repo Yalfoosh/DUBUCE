@@ -9,7 +9,6 @@ import layers
 
 
 DATA_DIR = Path(__file__).parent / "datasets" / "MNIST"
-# TODO Treba dodati os.makedirs
 SAVE_DIR = Path(__file__).parent / "out"
 
 config = dict()
