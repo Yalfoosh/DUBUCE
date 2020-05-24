@@ -15,4 +15,4 @@ Vaš `LAB2/datasets/CIFAR` direktor sad bi trebao izgledati kao na slici:
 
 ![](./res/cifar_folder.png)
 
-Nakon toga slobodno možete pokrenuti vježbu. Ako želite ponovno trenirate neke od zadataka, ne zaboravite postaviti zastavice `tX_do_train` na `True`, gdje je X broj zadatka. Ove varijable nalaze se u sekciji **Postavke zadatka**.
+Nakon toga slobodno možete pokrenuti vježbu. Ako želite ponovno trenirati neke od zadataka, ne zaboravite postaviti zastavice `tX_do_train` na `True`, gdje je X broj zadatka. Ove varijable nalaze se u sekciji **Postavke zadatka**.
