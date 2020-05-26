@@ -12,14 +12,37 @@
 #    See the License for the specific language governing permissions and
 #    limitations under the License.
 
-from typing import Dict, Tuple
+from typing import Any, Dict, List, Tuple
 
 import numpy as np
 
 
-def get_random_params(range_dict: Dict[str, Tuple] = None,
+def get_random_params(range_dict: Dict[str, Tuple[Any, Any]],
                       force_dict: Dict[str, Tuple] = None,
-                      amount: int = 1):
+                      amount: int = 1) -> List[Dict[str, Any]]:
+    """
+    Generates random parameters.
+
+    :param range_dict:
+        A Dict[str, Tuple[Any, Any]] mapping parameter names to their numerical
+        ranges.
+
+    :param force_dict:
+        (Optional) A Dict[str, Tuple] mapping parameter names to all their
+        possible values. For every value a copy of the range_dict-generated
+        parameter dict is created (or in other words, every possibility in a
+        force dict branches into a version which has the range_dict-generated
+        parameters as base. Defaults to None.
+
+    :param amount:
+        (Optional) A int representing the number of random samples drawn when
+        generating range_dict based parameters. Defaults to 1.
+
+
+    :return:
+        A List[Dict[str, Any]] containing the list of different parameter
+        configurations randomly generated given the ranges passed as arguments.
+    """
     params_list = list()
 
     if range_dict is not None:

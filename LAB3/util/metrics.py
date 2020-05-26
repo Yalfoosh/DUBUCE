@@ -13,7 +13,7 @@
 #    limitations under the License.
 
 from sys import stdout
-from typing import Callable
+from typing import Any, Callable, Dict, List
 
 import numpy as np
 from sklearn.metrics import confusion_matrix
@@ -23,7 +23,32 @@ from tqdm import tqdm
 
 
 def evaluate(model: torch.nn.Module, x, y,
-             loss: Callable = None, verbose: int = 1):
+             loss: Callable = None, verbose: int = 1) -> Dict[str, Any]:
+    """
+    Evaluates a given model given a set of inputs, outputs and a loss function.
+
+    :param model:
+        A torch.nn.Module representing the model you wish to evaluate.
+
+    :param x:
+        A set of inputs you wish to evaluate the model on.
+
+    :param y:
+        A set of labels you wish to evaluate the model on.
+
+    :param loss:
+        (Optional) A Callable representing the loss function you wish to
+        evaluate the model with. Defaults to None (which will ignore loss
+        calculations).
+
+    :param verbose:
+        (Optional) An int representing the verbosity of evaluation. Defaults to
+        1 (just above no input).
+
+
+    :return:
+        A Dict[str, any] mapping metric keys to the measure values.
+    """
     model.eval()
 
     y_pred = list()
@@ -60,7 +85,19 @@ def evaluate(model: torch.nn.Module, x, y,
             "cm": np.ndarray.tolist(cm)}
 
 
-def convert_timeline_to_diary(timeline):
+def convert_timeline_to_diary(timeline: List[Dict[str, Any]]) -> Dict[str, Any]:
+    """
+    Converts a list of logged data into a Dict[str, Any] containing lists of
+    data instead of singular values, or in other words a diary.
+
+    :param timeline:
+        A List[Dict[str, Any]] containing the logged metrics you wish to
+        flatten into a diary dictionary.
+
+
+    :return:
+        A Dict[str, Any] representing the diary dictionary.
+    """
     to_return = dict()
 
     for time_stamp in timeline:

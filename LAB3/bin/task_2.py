@@ -15,7 +15,7 @@
 import json
 import os
 from sys import stdout
-from typing import Callable, List, Tuple
+from typing import Any, Callable, Dict, List, Tuple
 
 import numpy as np
 import torch
@@ -30,9 +30,28 @@ from util.paths import DEFAULT_SAVE_TASK2
 class Baseline(torch.nn.Module):
     def __init__(self,
                  embedding_matrix: str or np.ndarray,
-                 units: List[int] or Tuple[int] = (300, 150, 150, 1),
+                 units: List[int] or Tuple[int] = (150, 150, 1),
                  loss: Callable = torch.nn.BCEWithLogitsLoss(),
                  freeze_embedding: bool = True):
+        """
+        Baseline constructor.
+
+        :param embedding_matrix:
+            A string representing the path to the numpy-serialized embedding
+            matrix, or a np.ndarray object containing the embedding matrix.
+
+        :param units:
+            (Optional) A List or Tuple of ints representing the neurons of the
+            dense layers. Defaults to (150, 150, 1).
+
+        :param loss:
+            (Optional) A Callable representing the loss function. Defaults to
+            torch.nn.BCEWithLogitsLoss().
+
+        :param freeze_embedding:
+            (Optional) A bool: True if you don't want to train embeddings,
+            False otherwise. Defaults to True.
+        """
         super().__init__()
 
         if isinstance(embedding_matrix, str):
@@ -42,8 +61,10 @@ class Baseline(torch.nn.Module):
                                                     freeze=freeze_embedding)
         self._fc = list()
 
-        for i, unit in enumerate(units[:-1]):
-            self._fc.append(torch.nn.Linear(unit, units[i + 1]))
+        units = (300, *units)
+
+        for i in range(1, len(units)):
+            self._fc.append(torch.nn.Linear(units[i - 1], units[i]))
 
         self._loss = loss
 
@@ -52,19 +73,54 @@ class Baseline(torch.nn.Module):
     # region Properties
     @property
     def embedding(self) -> torch.nn.Embedding:
+        """
+        Embedding property.
+
+
+        :return:
+            A torch.nn.Embedding object representing this model's embedding.
+        """
         return self._embedding
 
     @property
     def fc(self) -> List[torch.nn.Linear]:
+        """
+        Fully connected layers list property.
+
+
+        :return:
+            A List[torch.nn.Linear] object representing the fully connected
+            layers of this model.
+        """
         return self._fc
 
     @property
     def loss(self) -> Callable:
+        """
+        Loss property.
+
+
+        :return:
+            A Callable representing this model's loss function.
+        """
         return self._loss
 
     # endregion
 
     def reset_parameters(self):
+        """
+        Resets this model's parameters.
+
+        Does:
+            Kaiming normal on fully connected layers' weights
+            N(0, 1e-6 / 3) on fully connected layers' biases
+            Xavier normal on the last fully connected layers' weights
+            Constant(0) on the last fully connected layers' biases
+
+
+        :return:
+            Nothing.
+        """
         for fc in self.fc[:-1]:
             torch.nn.init.kaiming_normal_(fc.weight, nonlinearity="relu")
             torch.nn.init.normal_(fc.bias, 0., 1e-6 / 3)
@@ -72,7 +128,15 @@ class Baseline(torch.nn.Module):
         torch.nn.init.xavier_normal_(self.fc[-1].weight)
         torch.nn.init.constant_(self.fc[-1].bias, 0.)
 
-    def get_trainable_parameters(self):
+    def get_trainable_parameters(self) -> List[torch.Tensor]:
+        """
+        Gets this model's trainable parameters.
+
+
+        :return:
+            A List[torch.Tensor] representing all tensors which can be
+            trained.
+        """
         parameters = list()
 
         for fc in self.fc:
@@ -82,7 +146,17 @@ class Baseline(torch.nn.Module):
 
         return parameters
 
-    def forward(self, x):
+    def forward(self, x) -> torch.Tensor:
+        """
+        Forward pass - BxSx300 or Sx300 in, Bx1 or torch.int out.
+
+        :param x:
+            The input to the model.
+
+
+        :return:
+            A torch.Tensor object representing the output of the model.
+        """
         # Input shape is either (batch_size, sequence_length) or
         # (sequence_length)
         y = self.embedding(x)
@@ -97,7 +171,17 @@ class Baseline(torch.nn.Module):
 
         return self.fc[-1](y)
 
-    def infer(self, x):
+    def infer(self, x) -> int:
+        """
+        Model's inference method. Doesn't affect gradients.
+
+        :param x:
+            The input to the model.
+
+
+        :return:
+            A int representing the classification answer.
+        """
         with torch.no_grad():
             y = torch.sigmoid(self.forward(x))
             y = y.round().int().squeeze(-1)
@@ -112,19 +196,48 @@ class Baseline(torch.nn.Module):
             batch_size: int = 1,
             save_folder: str = DEFAULT_SAVE_TASK2,
             verbose: int = 1):
+        """
+        This model's fit method. Used to train the model.
+
+        :param dataset:
+            A torch.utils.data.Dataset object representing the training dataset.
+
+        :param validation_dataset:
+            (Optional) A torch.utils.data.Dataset object representing the
+            training dataset. Defaults to None, skipping validation.
+
+        :param n_epochs:
+            (Optional) An int representing the number of epochs you wish to
+            train the model for. Defaults to 1.
+
+        :param learning_rate:
+            (Optional) A float representing the starting learning rate of the
+            model. Defaults to 3e-4.
+
+        :param batch_size:
+            (Optional) An int representing the batch size. Defaults to 1.
+
+        :param save_folder:
+            (Optional) A str representing the folder path where results should
+            be saved. Defaults to DEFAULT_SAVE_TASK2.
+
+        :param verbose:
+            (Optional) An int representing the level of verbosity during
+            training. Defaults to 1 (just above no input).
+
+
+        :return:
+            Nothing.
+        """
         self.train()
 
-        os.makedirs(save_folder, exist_ok=True)
-        tr_res_path = os.path.join(save_folder, "results_tr.json")
-        val_res_path = os.path.join(save_folder, "results_val.json")
-
         val_metrics = list()
+        losses = list()
 
         optimizer = torch.optim.Adam(self.get_trainable_parameters(),
                                      lr=learning_rate)
 
-        losses = list()
-
+        # Train
         for i_epoch in range(n_epochs):
             loss_memory = list()
             dataloader = torch.utils.data.DataLoader(dataset=dataset,
@@ -168,9 +281,16 @@ class Baseline(torch.nn.Module):
 
                 val_metrics.append(val_dict)
 
+        # Process results
         train_metrics = convert_timeline_to_diary([self.evaluate(dataset)])
         val_metrics = convert_timeline_to_diary(val_metrics)
 
+        # Create folder structure
+        os.makedirs(save_folder, exist_ok=True)
+        tr_res_path = os.path.join(save_folder, "results_tr.json")
+        val_res_path = os.path.join(save_folder, "results_val.json")
+
+        # Save results
         with open(tr_res_path, mode="w+") as file:
             json.dump(train_metrics, file,
                       sort_keys=False, ensure_ascii=False, indent=2)
@@ -180,7 +300,19 @@ class Baseline(torch.nn.Module):
                       sort_keys=False, ensure_ascii=False, indent=2)
 
     def evaluate(self,
-                 dataset: torch.utils.data.Dataset):
+                 dataset: torch.utils.data.Dataset) -> Dict[str, Any]:
+        """
+        This model's evaluation function.
+
+        :param dataset:
+            A torch.utils.data.Dataset object representing the dataset you wish
+            to evaluate this model's performance on.
+
+
+        :return:
+            A Dict[str, Any] object mapping metric keys with values measured
+            by evaluating the model.
+        """
         dl = list(torch.utils.data.DataLoader(dataset=dataset,
                                               batch_size=1,
                                               shuffle=False,

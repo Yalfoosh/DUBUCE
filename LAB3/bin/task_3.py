@@ -15,7 +15,7 @@
 import json
 import os
 from sys import stdout
-from typing import Callable, List, Tuple
+from typing import Any, Callable, Dict, List, Tuple
 
 import numpy as np
 import torch
@@ -30,10 +30,32 @@ from util.paths import DEFAULT_SAVE_TASK3
 class LSTM(torch.nn.Module):
     def __init__(self,
                  embedding_matrix: str or np.ndarray,
-                 rnn_units: List[int] = (300, 150, 150),
-                 fc_units: List[int] or Tuple[int] = (150, 150, 1),
+                 rnn_units: List[int] = (150, 150),
+                 fc_units: List[int] or Tuple[int] = (150, 1),
                  loss: Callable = torch.nn.BCEWithLogitsLoss(),
                  freeze_embedding: bool = True):
+        """
+        LSTM constructor.
+
+        :param embedding_matrix:
+            A string representing the path to the numpy-serialized embedding
+            matrix, or a np.ndarray object containing the embedding matrix.
+
+        :param rnn_units:
+            (Optional) A List or Tuple of ints representing the neurons of the
+            LSTM layers. Defaults to (150, 150).
+        :param fc_units:
+            (Optional) A List or Tuple of ints representing the neurons of the
+            dense layers. Defaults to (150, 1).
+
+        :param loss:
+            (Optional) A Callable representing the loss function. Defaults to
+            torch.nn.BCEWithLogitsLoss().
+
+        :param freeze_embedding:
+            (Optional) A bool: True if you don't want to train embeddings,
+            False otherwise. Defaults to True.
+        """
         super().__init__()
 
         if isinstance(embedding_matrix, str):
@@ -45,37 +67,83 @@ class LSTM(torch.nn.Module):
         self._fc = list()
         self._loss = loss
 
-        for i, unit in enumerate(rnn_units[:-1]):
-            self._rnn.append(torch.nn.LSTM(unit,
-                                           rnn_units[i + 1],
-                                           num_layers=2,
-                                           batch_first=False))
+        rnn_units = (300, *rnn_units)
+        fc_units = (rnn_units[-1], *fc_units)
 
-        for i, unit in enumerate(fc_units[:-1]):
-            self._fc.append(torch.nn.Linear(unit, fc_units[i + 1]))
+        for i in range(1, len(rnn_units)):
+            self._rnn.append(torch.nn.LSTM(rnn_units[i - 1], rnn_units[i],
+                                           num_layers=2, batch_first=False))
+
+        for i in range(1, len(fc_units)):
+            self._fc.append(torch.nn.Linear(fc_units[i - 1], fc_units[i]))
 
         self.reset_parameters()
 
     # region Properties
     @property
     def embedding(self) -> torch.nn.Embedding:
+        """
+        Embedding property.
+
+
+        :return:
+            A torch.nn.Embedding object representing this model's embedding.
+        """
         return self._embedding
 
     @property
     def fc(self) -> List[torch.nn.Linear]:
+        """
+        Fully connected layers list property.
+
+
+        :return:
+            A List[torch.nn.Linear] object representing the fully connected
+            layers of this model.
+        """
         return self._fc
 
     @property
     def rnn(self) -> List[torch.nn.LSTM]:
+        """
+        Recurrent layers list property.
+
+
+        :return:
+            A List[torch.nn.LSTM] object representing the recurrent layers of
+            this model.
+        """
         return self._rnn
 
     @property
     def loss(self) -> Callable:
+        """
+        Loss property.
+
+
+        :return:
+            A Callable representing this model's loss function.
+        """
         return self._loss
 
     # endregion
 
     def reset_parameters(self):
+        """
+        Resets this model's parameters.
+
+        Does:
+            Xavier normal on recurrent layers' weights
+            N(0, 1e-6 / 3) on recurrent layers' biases
+            Kaiming normal on fully connected layers' weights
+            N(0, 1e-6 / 3) on fully connected layers' biases
+            Xavier normal on the last fully connected layers' weights
+            Constant(0) on the last fully connected layers' biases
+
+
+        :return:
+            Nothing.
+        """
         for rnn in self.rnn:
             weights = [x[1] for x in rnn.named_parameters()
                        if x[0].startswith("weight")]
@@ -93,7 +161,15 @@ class LSTM(torch.nn.Module):
         torch.nn.init.xavier_normal_(self.fc[-1].weight)
         torch.nn.init.constant_(self.fc[-1].bias, 0.)
 
-    def get_trainable_parameters(self):
+    def get_trainable_parameters(self) -> List[torch.Tensor]:
+        """
+        Gets this model's trainable parameters.
+
+
+        :return:
+            A List[torch.Tensor] representing all tensors which can be
+            trained.
+        """
         parameters = list()
 
         for rnn in self.rnn:
@@ -106,7 +182,17 @@ class LSTM(torch.nn.Module):
 
         return parameters
 
-    def forward(self, x):
+    def forward(self, x) -> torch.Tensor:
+        """
+        Forward pass - BxSx300 in, Bx1 out.
+
+        :param x:
+            The input to the model.
+
+
+        :return:
+            A torch.Tensor object representing the output of the model.
+        """
         assert len(x.shape) == 2, "Make sure you're passing batched data!"
 
         # Input shape is (batch_size, sequence_length)
@@ -132,7 +218,17 @@ class LSTM(torch.nn.Module):
 
         return self.fc[-1](y)
 
-    def infer(self, x):
+    def infer(self, x) -> int:
+        """
+        Model's inference method. Doesn't affect gradients.
+
+        :param x:
+            The input to the model.
+
+
+        :return:
+            A int representing the classification answer.
+        """
         with torch.no_grad():
             y = torch.sigmoid(self.forward(x))
             y = y.round().int().squeeze(-1)
@@ -148,19 +244,52 @@ class LSTM(torch.nn.Module):
             gradient_clipping: float = None,
             save_folder: str = DEFAULT_SAVE_TASK3,
             verbose: int = 1):
+        """
+        This model's fit method. Used to train the model.
+
+        :param dataset:
+            A torch.utils.data.Dataset object representing the training dataset.
+
+        :param validation_dataset:
+            (Optional) A torch.utils.data.Dataset object representing the
+            training dataset. Defaults to None, skipping validation.
+
+        :param n_epochs:
+            (Optional) An int representing the number of epochs you wish to
+            train the model for. Defaults to 1.
+
+        :param learning_rate:
+            (Optional) A float representing the starting learning rate of the
+            model. Defaults to 3e-4.
+
+        :param batch_size:
+            (Optional) An int representing the batch size. Defaults to 1.
+
+        :param gradient_clipping
+            (Optional) A float representing the gradient clipping value.
+            Defaults to None (same as 0).
+
+        :param save_folder:
+            (Optional) A str representing the folder path where results should
+            be saved. Defaults to DEFAULT_SAVE_TASK3.
+
+        :param verbose:
+            (Optional) An int representing the level of verbosity during
+            training. Defaults to 1 (just above no input).
+
+
+        :return:
+            Nothing.
+        """
         self.train()
 
-        os.makedirs(save_folder, exist_ok=True)
-        tr_res_path = os.path.join(save_folder, "results_tr.json")
-        val_res_path = os.path.join(save_folder, "results_val.json")
-
         val_metrics = list()
+        losses = list()
 
         trainable_params = self.get_trainable_parameters()
         optimizer = torch.optim.Adam(trainable_params, lr=learning_rate)
 
-        losses = list()
-
+        # Train
         for i_epoch in range(n_epochs):
             loss_memory = list()
             dataloader = torch.utils.data.DataLoader(dataset=dataset,
@@ -208,9 +337,16 @@ class LSTM(torch.nn.Module):
 
                 val_metrics.append(val_dict)
 
+        # Process results
         train_metrics = convert_timeline_to_diary([self.evaluate(dataset)])
         val_metrics = convert_timeline_to_diary(val_metrics)
 
+        # Create folder structure
+        os.makedirs(save_folder, exist_ok=True)
+        tr_res_path = os.path.join(save_folder, "results_tr.json")
+        val_res_path = os.path.join(save_folder, "results_val.json")
+
+        # Save results
         with open(tr_res_path, mode="w+") as file:
             json.dump(train_metrics, file,
                       sort_keys=False, ensure_ascii=False, indent=2)
@@ -220,7 +356,19 @@ class LSTM(torch.nn.Module):
                       sort_keys=False, ensure_ascii=False, indent=2)
 
     def evaluate(self,
-                 dataset: torch.utils.data.Dataset):
+                 dataset: torch.utils.data.Dataset) -> Dict[str, Any]:
+        """
+        This model's evaluation function.
+
+        :param dataset:
+            A torch.utils.data.Dataset object representing the dataset you wish
+            to evaluate this model's performance on.
+
+
+        :return:
+            A Dict[str, Any] object mapping metric keys with values measured
+            by evaluating the model.
+        """
         dl = list(torch.utils.data.DataLoader(dataset=dataset,
                                               batch_size=1,
                                               shuffle=False,

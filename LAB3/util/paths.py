@@ -12,6 +12,8 @@
 #    See the License for the specific language governing permissions and
 #    limitations under the License.
 
+import os
+
 #   PATHS ARE RELATIVE TO THE PROJECT ROOT
 #
 #       This doesn't bother us since we'll change our directory to the project
@@ -27,3 +29,5 @@ TEST_CSV_PATH = "data/test.csv"
 DEFAULT_SAVE_TASK2 = "results/task_2"
 DEFAULT_SAVE_TASK3 = "results/task_3"
 DEFAULT_SAVE_TASK4 = "results/task_4"
+DEFAULT_SAVE_TASK4_1 = os.path.join(DEFAULT_SAVE_TASK4, "part-1")
+DEFAULT_SAVE_TASK4_2 = os.path.join(DEFAULT_SAVE_TASK4, "part-2")

@@ -42,9 +42,52 @@ class RecurrentModel(torch.nn.Module):
                  rnn_dropout: float = 0.,
                  rnn_bidirectional: bool = False,
                  fc_activation_function: Callable = torch.relu,
-                 fc_units: List[int] or Tuple[int] = (150, 150, 1),
+                 fc_units: List[int] or Tuple[int] = (150, 1),
                  loss: Callable = torch.nn.BCEWithLogitsLoss(),
                  freeze_embedding: bool = True):
+        """
+        RecurrentModel constructor.
+
+        :param embedding_matrix:
+            A string representing the path to the numpy-serialized embedding
+            matrix, or a np.ndarray object containing the embedding matrix.
+
+        :param rnn_type:
+            (Optional) A str representing the type of recurrent network used in
+            the model. Accepted values are "rnn", "lstm" and "gru". Defaults to
+            "rnn".
+
+        :param rnn_hidden_size:
+            (Optional) An int representing the size of recurrent layers.
+            Defaults to 150.
+
+        :param rnn_num_layers:
+            (Optional) An int representing the number of layers of each
+            recurrent network. Defaults to 2.
+
+        :param rnn_dropout:
+            (Optional) A float representing the RNN dropout. Defaults to 0.
+
+        :param rnn_bidirectional:
+            (Optional) A bool: True if RNNs are bidirectional, False otherwise.
+            Defaults to False.
+
+        :param fc_activation_function:
+            (Optional) A Callable representing the activation function of the
+            first fully connected layer. Defaults to torch.relu.
+
+        :param fc_units:
+            (Optional) A List or Tuple of ints representing the neurons of the
+            dense layers. Defaults to (150, 1).
+
+        :param loss:
+            (Optional) A Callable representing the loss function. Defaults to
+            torch.nn.BCEWithLogitsLoss().
+
+        :param freeze_embedding:
+            (Optional) A bool: True if you don't want to train embeddings,
+            False otherwise. Defaults to True.
+        """
         super().__init__()
 
         if isinstance(embedding_matrix, str):
@@ -57,11 +100,28 @@ class RecurrentModel(torch.nn.Module):
         self._fc = list()
         self._loss = loss
 
-        rnn_units = (300, rnn_hidden_size, rnn_hidden_size)
+        fc_input_size = rnn_hidden_size * 2\
+                        if rnn_bidirectional\
+                        else rnn_hidden_size
 
-        for i, unit in enumerate(rnn_units[:-1]):
+        rnn_units = [300, rnn_hidden_size, rnn_hidden_size]
+        fc_units = [rnn_units[-1], *fc_units]
+
+        # If we have bidirectional RNNs, the input to the dense layer is double
+        # the number of RNN neurons of the last recurrent layer.
+        if rnn_bidirectional:
+            fc_units[0]  *= 2
+
+        for i in range(1, len(rnn_units)):
+            rnn_input_size = rnn_units[i - 1]
+
+            # After the first RNN run, all the next inputs have double the
+            # input size (because they are bidirectional).
+            if i != 1 and rnn_bidirectional:
+                rnn_input_size *= 2
+
             self._rnn.append(rnn2class[rnn_type](
-                unit, rnn_units[i + 1],
+                rnn_input_size, rnn_units[i],
                 num_layers=rnn_num_layers, dropout=rnn_dropout,
                 bidirectional=rnn_bidirectional, batch_first=False))
 
@@ -73,27 +133,80 @@ class RecurrentModel(torch.nn.Module):
     # region Properties
     @property
     def embedding(self) -> torch.nn.Embedding:
+        """
+        Embedding property.
+
+
+        :return:
+            A torch.nn.Embedding object representing this model's embedding.
+        """
         return self._embedding
 
     @property
     def fc_activation_function(self) -> Callable:
+        """
+        The fully connected activation function property.
+
+
+        :return:
+            A Callable representing the activation function of the first fully
+            connected layer.
+        """
         return self._fc_activation_function
 
     @property
     def fc(self) -> List[torch.nn.Linear]:
+        """
+        Fully connected layers list property.
+
+
+        :return:
+            A List[torch.nn.Linear] object representing the fully connected
+            layers of this model.
+        """
         return self._fc
 
     @property
     def rnn(self) -> List[torch.nn.LSTM]:
+        """
+        Recurrent layers list property.
+
+
+        :return:
+            A List[torch.nn.LSTM] object representing the recurrent layers of
+            this model.
+        """
         return self._rnn
 
     @property
     def loss(self) -> Callable:
+        """
+        Loss property.
+
+
+        :return:
+            A Callable representing this model's loss function.
+        """
         return self._loss
 
     # endregion
 
     def reset_parameters(self):
+        """
+        Resets this model's parameters.
+
+        Does:
+            Xavier normal on recurrent layers' weights
+            N(0, 1e-6 / 3) on recurrent layers' biases
+            Kaiming normal on fully connected layers' weights
+            N(0, 1e-6 / 3) on fully connected layers' biases
+            Xavier normal on the last fully connected layers' weights
+            Constant(0) on the last fully connected layers' biases
+
+
+        :return:
+            Nothing.
+        """
         for rnn in self.rnn:
             weights = [x[1] for x in rnn.named_parameters()
                        if x[0].startswith("weight")]
@@ -111,7 +224,15 @@ class RecurrentModel(torch.nn.Module):
         torch.nn.init.xavier_normal_(self.fc[-1].weight)
         torch.nn.init.constant_(self.fc[-1].bias, 0.)
 
-    def get_trainable_parameters(self):
+    def get_trainable_parameters(self) -> List[torch.Tensor]:
+        """
+        Gets this model's trainable parameters.
+
+
+        :return:
+            A List[torch.Tensor] representing all tensors which can be
+            trained.
+        """
         parameters = list()
 
         for rnn in self.rnn:
@@ -125,6 +246,16 @@ class RecurrentModel(torch.nn.Module):
         return parameters
 
     def forward(self, x):
+        """
+        Forward pass - Bx1x300 in, Bx1 out.
+
+        :param x:
+            The input to the model.
+
+
+        :return:
+            A torch.Tensor object representing the output of the model.
+        """
         assert len(x.shape) == 2, "Make sure you're passing batched data!"
 
         # Input shape is (batch_size, sequence_length)
@@ -151,6 +282,16 @@ class RecurrentModel(torch.nn.Module):
         return self.fc[-1](y)
 
     def infer(self, x):
+        """
+        Model's inference method. Doesn't affect gradients.
+
+        :param x:
+            The input to the model.
+
+
+        :return:
+            A int representing the classification answer.
+        """
         with torch.no_grad():
             y = torch.sigmoid(self.forward(x))
             y = y.round().int().squeeze(-1)
@@ -168,22 +309,62 @@ class RecurrentModel(torch.nn.Module):
             save_folder: str = DEFAULT_SAVE_TASK4,
             additional_params: Dict[str, Any] = None,
             verbose: int = 1):
+        """
+        This model's fit method. Used to train the model.
+
+        :param dataset:
+            A torch.utils.data.Dataset object representing the training dataset.
+
+        :param validation_dataset:
+            (Optional) A torch.utils.data.Dataset object representing the
+            training dataset. Defaults to None, skipping validation.
+
+        :param n_epochs:
+            (Optional) An int representing the number of epochs you wish to
+            train the model for. Defaults to 1.
+
+        :param optimizer
+            (Optional) A PyTorch optimizer. Defaults to torch.optim.Adam.
+
+        :param learning_rate:
+            (Optional) A float representing the starting learning rate of the
+            model. Defaults to 3e-4.
+
+        :param batch_size:
+            (Optional) An int representing the batch size. Defaults to 1.
+
+        :param gradient_clipping
+            (Optional) A float representing the gradient clipping value.
+            Defaults to None (same as 0).
+
+        :param save_folder:
+            (Optional) A str representing the folder path where results should
+            be saved. Defaults to DEFAULT_SAVE_TASK3.
+
+        :param additional_params:
+            (Optional) A Dict[str, Any] representing the hyperparameters used
+            to train the model. Used for logging only. Defaults to None.
+
+        :param verbose:
+            (Optional) An int representing the level of verbosity during
+            training. Defaults to 1 (just above no input).
+
+
+        :return:
+            Nothing.
+        """
         self.train()
 
-        os.makedirs(save_folder, exist_ok=True)
-        tr_res_path = os.path.join(save_folder, "results_tr.json")
-        val_res_path = os.path.join(save_folder, "results_val.json")
-
         val_metrics = list()
-
-        trainable_params = self.get_trainable_parameters()
-        optimizer = optimizer(trainable_params, lr=learning_rate)
+        losses = list()
 
         if additional_params is None:
             additional_params = dict()
 
-        losses = list()
+        trainable_params = self.get_trainable_parameters()
+        optimizer = optimizer(trainable_params, lr=learning_rate)
 
+        # Train
         for i_epoch in range(n_epochs):
             loss_memory = list()
             dataloader = torch.utils.data.DataLoader(dataset=dataset,
@@ -231,12 +412,19 @@ class RecurrentModel(torch.nn.Module):
 
                 val_metrics.append(val_dict)
 
+        # Process results
         train_metrics = convert_timeline_to_diary([self.evaluate(dataset)])
         val_metrics = convert_timeline_to_diary(val_metrics)
 
         train_metrics["additional_hyperparameters"] = additional_params
         val_metrics["additional_hyperparameters"] = additional_params
 
+        # Create folder structure
+        os.makedirs(save_folder, exist_ok=True)
+        tr_res_path = os.path.join(save_folder, "results_tr.json")
+        val_res_path = os.path.join(save_folder, "results_val.json")
+
+        # Save results
         with open(tr_res_path, mode="w+") as file:
             json.dump(train_metrics, file,
                       sort_keys=False, ensure_ascii=False, indent=2)
@@ -247,6 +435,18 @@ class RecurrentModel(torch.nn.Module):
 
     def evaluate(self,
                  dataset: torch.utils.data.Dataset):
+        """
+        This model's evaluation function.
+
+        :param dataset:
+            A torch.utils.data.Dataset object representing the dataset you wish
+            to evaluate this model's performance on.
+
+
+        :return:
+            A Dict[str, Any] object mapping metric keys with values measured
+            by evaluating the model.
+        """
         dl = list(torch.utils.data.DataLoader(dataset=dataset,
                                               batch_size=1,
                                               shuffle=False,
