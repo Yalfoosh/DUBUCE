@@ -273,6 +273,8 @@ class RecurrentModel(torch.nn.Module):
             y, hidden = rnn(y, hidden)
 
         # Take the last RNN output
+        # NOTE: You shouldn't use the last RNN output, you should either pack
+        # the sequence or you should take the y[length]
         y = y[-1]
 
         for fc in self.fc[:-1]:

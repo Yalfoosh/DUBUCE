@@ -163,6 +163,8 @@ class Baseline(torch.nn.Module):
 
         # Now it's either (batch_size, sequence_length, embedding_length) or
         # (sequence_length, embedding_length)
+
+        # TODO You need to do the mean over non-zero elements!
         y = torch.mean(y, dim=0 if len(y.shape) == 2 else 1)
 
         for fc in self.fc[:-1]:
