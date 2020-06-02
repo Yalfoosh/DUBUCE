@@ -18,6 +18,13 @@ LAB2/im2col_cython.cpython-36m-x86_64-linux-gnu.so
 
 LAB3/data
 
+# LAB4
+
+LAB4/data
+LAB4/models
+
+
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]

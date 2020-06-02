@@ -262,7 +262,6 @@ class RecurrentModel(torch.nn.Module):
         y = self.embedding(x)
 
         # Now it's (batch_size, sequence_length, embedding_length)
-
         y = torch.transpose(y, 0, 1)
 
         # The shape is finally (sequence_length, batch_size, embedding_length)
