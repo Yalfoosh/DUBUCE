@@ -1,5 +1,19 @@
+#   Copyright 2020 Miljenko Šuflaj
+#
+#    Licensed under the Apache License, Version 2.0 (the "License");
+#    you may not use this file except in compliance with the License.
+#    You may obtain a copy of the License at
+#
+#        http://www.apache.org/licenses/LICENSE-2.0
+#
+#    Unless required by applicable law or agreed to in writing, software
+#    distributed under the License is distributed on an "AS IS" BASIS,
+#    WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+#    See the License for the specific language governing permissions and
+#    limitations under the License.
+
 from sys import stdout
-from typing import Callable, List, Tuple
+from typing import Callable, Dict, List, Tuple
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -20,6 +34,29 @@ class VAE(torch.nn.Module):
                  decoder_units: List[int] or Tuple[int] = (200, 200),
                  data_units: int = 784,
                  loss: Callable = None):
+        """
+        A VAE constructor.
+
+        :param encoder_units:
+            (Optional) A List[int] or Tuple[int] containing the units of the
+            encoder. Default: (200, 200).
+
+        :param bottleneck_size:
+            (Optional) A int representing the dimensionality of the latent
+            variable. Default: 20.
+
+        :param decoder_units:
+            (Optional) A List[int] or Tuple[int] containing the units of the
+            decoder. Default: (200, 200).
+
+        :param data_units:
+            (Optional) A int representing the dimensionality of the input and
+            output. Default: 784.
+
+        :param loss:
+            (Optional) A Callable representing the loss function for the VAE.
+            Default: None (takes it from losses.get_vae_loss())
+        """
         super(VAE, self).__init__()
 
         self._bottleneck_size = bottleneck_size
@@ -54,40 +91,43 @@ class VAE(torch.nn.Module):
 
     # region Properties
     @property
-    def bottleneck_size(self):
+    def bottleneck_size(self) -> int:
         return self._bottleneck_size
 
     @property
-    def data_units(self):
+    def data_units(self) -> int:
         return self._data_units
 
     @property
-    def loss(self):
-        return self._loss
-
-    @property
-    def encoder(self):
+    def encoder(self) -> List[torch.nn.Linear]:
         return self._encoder
 
     @property
-    def bottleneck(self):
+    def bottleneck(self) -> Dict[str, torch.nn.Linear]:
         return self._bottleneck
 
     @property
-    def decoder(self):
+    def decoder(self) -> List[torch.nn.Linear]:
         return self._decoder
 
     @property
-    def reconstructor(self):
+    def reconstructor(self) -> torch.nn.Linear:
         return self._reconstructor
 
     @property
-    def softplus(self):
+    def softplus(self) -> torch.nn.Softplus:
         return self._softplus
 
     # endregion
 
     def reset_parameters(self):
+        """
+        Resets this instance's parameters.
+
+
+        :return:
+            Nothing.
+        """
         for fc in self.encoder:
             torch.nn.init.kaiming_normal_(fc.weight, nonlinearity="relu")
             torch.nn.init.normal_(fc.bias, 0., 1e-6 / 3)
@@ -106,20 +146,61 @@ class VAE(torch.nn.Module):
     @staticmethod
     def get_z(mu: torch.Tensor,
               logvar: torch.Tensor,
-              noise: torch.Tensor = None):
+              noise: torch.Tensor = None) -> torch.Tensor:
+        """
+        Gets the z for a set of means, variance logarithms and noise.
+
+        :param mu:
+            A torch.Tensor representing the mean of the latent variable.
+
+        :param logvar:
+            A torch.Tensor representing the variance logarithm of the latent
+            variable.
+
+        :param noise:
+            (Optional) A torch.Tensor representing. Default: None.
+
+
+        :return:
+            A torch.Tensor representing a sample from the latent variable.
+        """
         if noise is None:
             noise = 1.
 
         return mu + torch.sqrt(torch.exp(logvar)) * noise
 
-    def decode(self, x):
+    def decode(self, x: torch.Tensor) -> torch.Tensor:
+        """
+        Decodes the latent variable output.
+
+        :param x:
+            A torch.Tensor representing the decoder input.
+
+
+        :return:
+            A torch.Tensor representing the output for a given latent variable
+            sample.
+        """
         for fc in self.decoder:
             x = fc(x)
             x = self.softplus(x)
 
         return self.reconstructor(x)
 
-    def forward(self, x):
+    def forward(self, x: torch.Tensor)\
+            -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        """
+        The forward method of a VAE instance.
+
+        :param x:
+            A torch.Tensor representing the network input.
+
+
+        :return:
+            A triple of torch.Tensor objects representing the reconstructed
+            input, the mean of the latent variable and the variance logarithm
+            of the latent variable.
+        """
         # Flatten
         y = x.view(-1, self.data_units)
 
@@ -136,12 +217,7 @@ class VAE(torch.nn.Module):
         y = self.get_z(mu, logvar, noise)
 
         # Decode
-        for fc in self.decoder:
-            y = fc(y)
-            y = self.softplus(y)
-
-        # Reconstruct (without sigmoid because it's in the loss)
-        y = self.reconstructor(y)
+        y = self.decode(y)
 
         return y, mu, logvar
 
@@ -150,15 +226,66 @@ class VAE(torch.nn.Module):
             n_epochs: int = 1,
             batch_size: int = 1,
             learning_rate: float = 3e-4,
-            lr_gamma: float = 0.95,
-            kl_beta_sine_multiplier: float = 0.3,
+            lr_gamma: float = None,
+            loss: Callable = None,
+            kl_beta_sine_multiplier: float = None,
             device: str = "cpu",
             verbose: int = 1):
+        """
+        A fit method of a VAE instance.
+
+        :param dataset:
+            A torch.utils.data.Dataset representing the dataset your wish to
+            fit the model on.
+
+        :param n_epochs:
+            (Optional) An int representing the number of epochs you wish to
+            train the model for. Default: 1.
+
+        :param batch_size:
+            (Optional) An int representing the batch size. Default: 1.
+
+        :param learning_rate:
+            (Optional) A float representing the starting learning rate during
+            training. Default: 3e-4.
+
+        :param lr_gamma:
+            (Optional) A float representing the learning rate decay multiplier
+            per fit epoch. Default: None.
+
+        :param loss:
+            (Optional) A Callable representing the loss function for the VAE.
+            Default: None (takes it from losses.get_vae_loss())
+
+        :param kl_beta_sine_multiplier:
+            (Optional) A float representing the frequency multiplier of a sine
+            function regulating the magnitude of the KL divergence used in
+            loss. Default: None (the multiplier is a constant 1).
+
+        :param device:
+            (Optional) A string representing the device you wish to fit on.
+            Default: "cpu".
+
+        :param verbose:
+            (Optional) An int representing the level of verbosity you wish to
+            have which fitting the model. Default: 1 (progress bar).
+
+
+        :return:
+            Nothing.
+        """
         self.train()
         self.to(device)
 
+        if loss is None:
+            loss = get_vae_loss()
+
         tr_loss = list()
         optimizer = torch.optim.Adam(self.parameters(), lr=learning_rate)
+
+        if lr_gamma is None:
+            lr_gamma = 1.
+
         scheduler = torch.optim.lr_scheduler.ExponentialLR(optimizer,
                                                            gamma=lr_gamma)
 
@@ -180,9 +307,8 @@ class VAE(torch.nn.Module):
                 optimizer.zero_grad()
 
                 y, mu, logvar = self.forward(x)
-                loss = self.loss(y_real=x.view(y.shape), y_pred=y,
-                                 mu=mu, logvar=logvar,
-                                 kl_beta=kl_beta)
+                loss = loss(y_real=x.view(y.shape), y_pred=y,
+                            mu=mu, logvar=logvar, kl_beta=kl_beta)
                 tr_loss.append(float(loss))
 
                 if verbose > 0:
@@ -193,12 +319,35 @@ class VAE(torch.nn.Module):
                 optimizer.step()
 
             scheduler.step()
+
             tr_loss.clear()
 
     def generate_mu_and_stddev_dataframes(self,
                                           dataset: torch.utils.data.Dataset,
                                           device: str = "cpu",
-                                          verbose: int = 1):
+                                          verbose: int = 1)\
+            -> Tuple[pd.DataFrame, pd.DataFrame]:
+        """
+        Generates the pandas.DataFrame objects for the mean and standard
+        deviations of the latent variables.
+
+        :param dataset:
+            A torch.utils.data.Dataset representing the dataset on which you
+            wish to create the dataframes on.
+
+        :param device:
+            (Optional) A string representing the device you wish to fit on.
+            Default: "cpu".
+
+        :param verbose:
+            (Optional) An int representing the level of verbosity you wish to
+            have which fitting the model. Default: 1 (progress bar).
+
+
+        :return:
+            A Tuple[pandas.DataFrame, pandas.DataFrame] representing the mean
+            and standard deviation dataframes creates from the given dataset.
+        """
         self.to(device)
         self.eval()
 
@@ -239,7 +388,26 @@ class VAE(torch.nn.Module):
     def plot_io(self,
                 dataset: torch.utils.data.Dataset,
                 n_samples: int,
-                device: str = "cpu"):
+                device: str = "cpu") -> Tuple[plt.Figure, plt.Axes]:
+        """
+        Plots the input and output of the model for a number of samples.
+
+        :param dataset:
+            A torch.utils.data.Dataset representing the dataset you wish to
+            take the samples from.
+
+        :param n_samples:
+            An int representing the number of samples you wish to plot.
+
+        :param device:
+            (Optional) A string representing the device you wish to fit on.
+            Default: "cpu".
+
+
+        :return:
+            A Tuple[matplotlib.pyplot.Figure, matplotlib.pyplot.Axes]
+            containing the plot information.
+        """
         self.to(device)
         self.eval()
 
@@ -260,7 +428,7 @@ class VAE(torch.nn.Module):
 
                 for j, plot_subject in enumerate((x, y)):
                     ax[i][j].axis("off")
-                    ax[i][j].imshow(plot_subject, vmin=-4, vmax=4)
+                    ax[i][j].imshow(plot_subject)
 
         fig.tight_layout()
 
@@ -268,7 +436,26 @@ class VAE(torch.nn.Module):
 
     @staticmethod
     def plot_distribution(mu_dataframe: pd.DataFrame,
-                          stddev_dataframe: pd.DataFrame):
+                          stddev_dataframe: pd.DataFrame)\
+            -> Tuple[plt.Figure, plt.Axes]:
+        """
+        Plots the distribution in 3 axes - 2 box plots: one for the latent
+        variable means, other for the latent variable standard deviations, as
+        well as plotting the scatter of the mean values from the 0th dimension
+        against the 1st.
+
+        :param mu_dataframe:
+            A pandas.DataFrame object representing the latent variable means.
+
+        :param stddev_dataframe:
+            A pandas.DataFrame object representing the latent variable standard
+            deviations.
+
+
+        :return:
+            A Tuple[matplotlib.pyplot.Figure, matplotlib.pyplot.Axes]
+            containing the plot information.
+        """
         fig, ax = plt.subplots(3, 1, figsize=(16, 30))
 
         sns.scatterplot(x="μ 00", y="μ 01", hue="label", s=50,
@@ -289,8 +476,28 @@ class VAE(torch.nn.Module):
 
     def plot_latent_space(self,
                           n_samples: int = 20,
-                          latent_space_limit: int = 3,
-                          device: str = "cpu"):
+                          latent_space_limit: float = 3,
+                          device: str = "cpu") -> Tuple[plt.Figure, plt.Axes]:
+        """
+        Plots the latent space of the model.
+
+        :param n_samples:
+            (Optional) An int representing the number of samples you wish to
+            plot. Default: 20.
+
+        :param latent_space_limit:
+            (Optional) A float representing the absolute bounds for the
+            samples of the latent variable space you wish to plot. Default: 3.
+
+        :param device:
+            (Optional) A string representing the device you wish to fit on.
+            Default: "cpu".
+
+
+        :return:
+            A Tuple[matplotlib.pyplot.Figure, matplotlib.pyplot.Axes]
+            containing the plot information.
+        """
         canvas = np.zeros((n_samples * 28, n_samples * 28))
 
         d1 = np.linspace(-latent_space_limit, latent_space_limit,
@@ -328,7 +535,36 @@ class VAE(torch.nn.Module):
                          n_samples: int = 4,
                          shape: Tuple[int, int] = None,
                          base_size: Tuple[int, int] = (1.6, 1.6),
-                         device: str = "cpu"):
+                         device: str = "cpu") -> Tuple[plt.Figure, plt.Axes]:
+        """
+        Plots generated images given a number of samples from the dataset.
+
+        :param dataset:
+            A torch.utils.data.Dataset representing the dataset you wish to
+            take the samples from.
+
+        :param n_samples:
+            (Optional) An int representing the number of samples you wish to
+            plot. Default: 4.
+
+        :param shape:
+            (Optional) The shape of the subplots. Default: None (calculates
+            the shape dynamically, focusing on a square shape with a width of
+            at most 10).
+
+        :param base_size:
+            (Optional) A Tuple[float, float] containing the base sizes of a
+            subplot. Default: (1.6, 1.6).
+
+        :param device:
+            (Optional) A string representing the device you wish to fit on.
+            Default: "cpu".
+
+
+        :return:
+            A Tuple[matplotlib.pyplot.Figure, matplotlib.pyplot.Axes]
+            containing the plot information.
+        """
         self.eval()
         self.to(device)
 
@@ -336,8 +572,8 @@ class VAE(torch.nn.Module):
             n_samples = 4
 
         if shape is None or shape[0] * shape[1] < n_samples:
-            height = min(int((n_samples ** 0.5) + 1e-6), 10)
-            width = (n_samples + height - 1) // height
+            width = min(int((n_samples ** 0.5) + 1e-6), 10)
+            height = (n_samples + width - 1) // width
 
             shape = (height, width)
 
@@ -360,4 +596,3 @@ class VAE(torch.nn.Module):
         fig.tight_layout()
 
         return fig, ax
-

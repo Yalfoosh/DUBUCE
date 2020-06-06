@@ -1,3 +1,17 @@
+#   Copyright 2020 Miljenko Šuflaj
+#
+#    Licensed under the Apache License, Version 2.0 (the "License");
+#    you may not use this file except in compliance with the License.
+#    You may obtain a copy of the License at
+#
+#        http://www.apache.org/licenses/LICENSE-2.0
+#
+#    Unless required by applicable law or agreed to in writing, software
+#    distributed under the License is distributed on an "AS IS" BASIS,
+#    WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+#    See the License for the specific language governing permissions and
+#    limitations under the License.
+
 from copy import deepcopy
 from sys import stdout
 from time import sleep
@@ -21,6 +35,38 @@ class Discriminator(torch.nn.Module):
                  padding: List[int] or Tuple[int] = (1, 1, 1, 1, 0),
                  leaky_relu_slope: float = 0.2,
                  use_batch_norm: bool = True):
+        """
+        The Discriminator constructor.
+
+        :param in_channels:
+            (Optional) An int representing the number of input channels.
+            Default: 1.
+
+        :param channels:
+            (Optional) A List[int] or Tuple[int] representing the channels of
+            every convolutional layer. Default: (64, 128, 256, 512, 1).
+
+        :param kernels:
+            (Optional) A List[int] or Tuple[int] representing the kernels of
+            every convolutional layer. Default: (4, 4, 4, 4, 4).
+
+        :param strides:
+            (Optional) A List[int] or Tuple[int] representing the strides of
+            every convolutional layer. Default: (2, 2, 2, 2, 1).
+
+        :param padding:
+            (Optional) A List[int] or Tuple[int] representing the padding of
+            every convolutional layer. Default: (1, 1, 1, 1, 0).
+
+        :param leaky_relu_slope:
+            (Optional) A float representing the slope of the leaky ReLu
+            activation functions. Default: 0.2.
+
+        :param use_batch_norm:
+            (Optional) A bool: True if you wish to use batch normalization,
+            False otherwise. Batch normalization is applied after every layer
+            that isn't the input or an output. Default: True.
+        """
         super().__init__()
 
         self._conv = torch.nn.ModuleList()
@@ -62,6 +108,13 @@ class Discriminator(torch.nn.Module):
     # endregion
 
     def reset_parameters(self):
+        """
+        Resets this instance's parameters.
+
+
+        :return:
+            Nothing.
+        """
         for conv in self.conv[:-1]:
             torch.nn.init.kaiming_normal_(conv.weight,
                                           nonlinearity="leaky_relu")
@@ -71,6 +124,17 @@ class Discriminator(torch.nn.Module):
         torch.nn.init.constant_(self.conv[-1].bias, 0.)
 
     def forward(self, x):
+        """
+        The forward method of a Discriminator instance.
+
+        :param x:
+            A torch.Tensor representing the network input.
+
+
+        :return:
+            A torch.Tensor of shape (B, 1) representing the network's
+            confidence that the input is a real image.
+        """
         y = self.conv[0](x)
         y = self.leaky_relu(y)
 
@@ -96,6 +160,38 @@ class Generator(torch.nn.Module):
                  padding: List[int] or Tuple[int] = (0, 1, 1, 1, 1),
                  leaky_relu_slope: float = 0.2,
                  use_batch_norm: bool = True):
+        """
+        The Generator constructor.
+
+        :param input_size:
+            (Optional) An int representing the dimensionality of the samples
+            generated. Default: 100.
+
+        :param channels:
+            (Optional) A List[int] or Tuple[int] representing the channels of
+            every convolutional layer. Default: (512, 256, 128, 64, 1).
+
+        :param kernels:
+            (Optional) A List[int] or Tuple[int] representing the kernels of
+            every convolutional layer. Default: (4, 4, 4, 4, 4).
+
+        :param strides:
+            (Optional) A List[int] or Tuple[int] representing the strides of
+            every convolutional layer. Default: (1, 2, 2, 2, 2).
+
+        :param padding:
+            (Optional) A List[int] or Tuple[int] representing the padding of
+            every convolutional layer. Default: (0, 1, 1, 1, 1).
+
+        :param leaky_relu_slope:
+            (Optional) A float representing the slope of the leaky ReLu
+            activation functions. Default: 0.2.
+
+        :param use_batch_norm:
+            (Optional) A bool: True if you wish to use batch normalization,
+            False otherwise. Batch normalization is applied after every layer
+            except the output. Default: True.
+        """
         super().__init__()
 
         self._input_size = input_size
@@ -128,7 +224,7 @@ class Generator(torch.nn.Module):
         return self._input_size
 
     @property
-    def conv(self) -> List[torch.nn.Conv2d]:
+    def conv(self) -> List[torch.nn.ConvTranspose2d]:
         return self._conv
 
     @property
@@ -142,6 +238,13 @@ class Generator(torch.nn.Module):
     # endregion
 
     def reset_parameters(self):
+        """
+        Resets this instance's parameters.
+
+
+        :return:
+            Nothing.
+        """
         for conv in self.conv[:-1]:
             torch.nn.init.kaiming_normal_(conv.weight,
                                           nonlinearity="leaky_relu")
@@ -151,6 +254,17 @@ class Generator(torch.nn.Module):
         torch.nn.init.constant_(self.conv[-1].bias, 0.)
 
     def forward(self, x):
+        """
+        The forward method of a Generator instance.
+
+        :param x:
+            A torch.Tensor representing the network input.
+
+
+        :return:
+            A torch.Tensor of shape (B, 64, 64) representing the generator's
+            output.
+        """
         for i in range(len(self.conv) - 1):
             x = self.conv[i](x)
             x = self.leaky_relu(x)
@@ -166,31 +280,35 @@ class Generator(torch.nn.Module):
 class DCGAN(torch.nn.Module):
     def __init__(self,
                  discriminator: Discriminator,
-                 generator: Generator,
-                 loss: Callable = None):
+                 generator: Generator):
+        """
+        The DCGAN constructor.
+
+        :param discriminator:
+            A Discriminator object representing the model's discriminator
+            module.
+
+        :param generator:
+            A Generator object representing the model's generator module.
+        """
         super().__init__()
 
         self._discriminator = deepcopy(discriminator)
         self._generator = deepcopy(generator)
-        self._loss = get_gan_loss() if loss is None else loss
 
         self._component_names = ("discriminator", "generator")
 
     # region Properties
     @property
-    def discriminator(self):
+    def discriminator(self) -> Discriminator:
         return self._discriminator
 
     @property
-    def generator(self):
+    def generator(self) -> Generator:
         return self._generator
 
     @property
-    def loss(self):
-        return self._loss
-
-    @property
-    def component_names(self):
+    def component_names(self) -> Tuple[str, str]:
         return self._component_names
 
     # endregion
@@ -200,24 +318,75 @@ class DCGAN(torch.nn.Module):
             n_epochs: int = 1,
             batch_size: int = 1,
             learning_rate: float or Tuple[float, float] or List[float] = 3e-4,
-            lr_gamma: float or Tuple[float, float] or List[float] = 0.95,
+            lr_gamma: float or Tuple[float, float] or List[float] = None,
+            loss: Callable = None,
             device: str = "cpu",
             discriminator_batches_till_step: int = 1,
             generator_batches_till_step: int = 1,
-            n_epochs_till_chill: int = None,
-            n_seconds_to_chill: int = 90,
             verbose: int = 1):
+        """
+
+        :param dataset:
+            A torch.utils.data.Dataset representing the dataset your wish to
+            fit the model on.
+
+        :param n_epochs:
+            (Optional) An int representing the number of epochs you wish to
+            train the model for. Default: 1.
+
+        :param batch_size:
+            (Optional) An int representing the batch size. Default: 1.
+
+        :param learning_rate:
+            (Optional) A float representing the starting learning rate during
+            training. Default: 3e-4.
+
+        :param lr_gamma:
+            (Optional) A float representing the learning rate decay multiplier
+            per fit epoch. Default: None.
+
+        :param loss:
+            (Optional) A Callable representing the loss function for the VAE.
+            Default: None (takes it from losses.get_gan_loss())
+
+        :param device:
+            (Optional) A string representing the device you wish to fit on.
+            Default: "cpu".
+
+        :param discriminator_batches_till_step:
+            An int representing the number of batches to wait before updating
+            the discriminator parameters.
+
+        :param generator_batches_till_step:
+            An int representing the number of batches to wait before updating
+            the generator parameters.
+
+        :param verbose:
+            (Optional) An int representing the level of verbosity you wish to
+            have which fitting the model. Default: 1 (progress bar).
+
+
+        :return:
+            Nothing.
+        """
         self.train()
         self.to(device)
+
+        if loss is None:
+            loss = get_gan_loss()
 
         if isinstance(learning_rate, int) or isinstance(learning_rate, float):
             learning_rate = tuple([learning_rate] * 2)
 
+        if lr_gamma is None:
+            lr_gamma = 1.
+
         if isinstance(lr_gamma, int) or isinstance(lr_gamma, float):
             lr_gamma = tuple([lr_gamma] * 2)
 
-        loss = dict()
-        losses = dict()
+        loss = {k: loss for k in self.component_names}
+        losses = {k: list() for k in self.component_names}
+
         optimizer = dict()
         scheduler = dict()
 
@@ -226,8 +395,6 @@ class DCGAN(torch.nn.Module):
                                               self.generator],
                                              learning_rate,
                                              lr_gamma):
-            loss[key] = self.loss
-            losses[key] = list()
             optimizer[key] = torch.optim.Adam(component.parameters(),
                                               lr=lr)
             scheduler[key] = torch.optim \
@@ -288,13 +455,6 @@ class DCGAN(torch.nn.Module):
                 for component_name in self.component_names:
                     optimizer[component_name].zero_grad()
 
-            if n_epochs_till_chill is not None \
-                    and (epoch + 1) % n_epochs_till_chill == 0:
-                if verbose > 0:
-                    print(f"\nChilling for {n_seconds_to_chill} seconds to "
-                          f"prevent overheating...\n")
-                sleep(n_seconds_to_chill)
-
             for component_name in self.component_names:
                 scheduler[component_name].step()
                 losses[component_name].clear()
@@ -304,6 +464,31 @@ class DCGAN(torch.nn.Module):
                          shape: Tuple[int, int] = None,
                          base_size: Tuple[int, int] = (1.6, 1.6),
                          device: str = "cpu"):
+        """
+        Plots generated images given a number of samples from the dataset.
+
+        :param n_samples:
+            (Optional) An int representing the number of samples you wish to
+            plot. Default: 4.
+
+        :param shape:
+            (Optional) The shape of the subplots. Default: None (calculates
+            the shape dynamically, focusing on a square shape with a width of
+            at most 10).
+
+        :param base_size:
+            (Optional) A Tuple[float, float] containing the base sizes of a
+            subplot. Default: (1.6, 1.6).
+
+        :param device:
+            (Optional) A string representing the device you wish to fit on.
+            Default: "cpu".
+
+
+        :return:
+            A Tuple[matplotlib.pyplot.Figure, matplotlib.pyplot.Axes]
+            containing the plot information.
+        """
         self.eval()
         self.to(device)
 
@@ -311,8 +496,8 @@ class DCGAN(torch.nn.Module):
             n_samples = 4
 
         if shape is None or shape[0] * shape[1] < n_samples:
-            height = min(int((n_samples ** 0.5) + 1e-6), 10)
-            width = (n_samples + height - 1) // height
+            width = min(int((n_samples ** 0.5) + 1e-6), 10)
+            height = (n_samples + width - 1) // width
 
             shape = (height, width)
 
